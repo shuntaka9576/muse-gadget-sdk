@@ -202,6 +202,27 @@ menu "Muse"
             memory and preview decoding shares CPU time with voice and Link.
             Leave disabled to build without camera support.
 
+    config MUSE_HTTP_TTS
+        bool "Speak replies using an HTTPS TTS API"
+        depends on MUSE_HATCH
+        default n
+        help
+            POST reply text to a TTS API and play its MP3 response.
+            Requires PSRAM. Failed requests fall back to captions.
+
+    config MUSE_HTTP_TTS_URL
+        string "TTS API HTTPS endpoint"
+        depends on MUSE_HTTP_TTS
+        default ""
+
+    config MUSE_HTTP_TTS_API_KEY
+        string "TTS API key (x-api-key)"
+        depends on MUSE_HTTP_TTS
+        default ""
+        help
+            Stored in the local sdkconfig and compiled firmware. Never commit
+            or share these files with the key included.
+
     config MUSE_CJK_FONT
         bool "Show Chinese and Japanese in captions"
         depends on MUSE_ENABLED
