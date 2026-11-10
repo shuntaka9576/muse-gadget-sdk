@@ -89,7 +89,9 @@ bool muse_voice_in_call(void) { return muse_voice_call_view() != MUSE_VOICE_VIEW
 bool muse_voice_ptt_call(void) { return muse_voice_in_call() && atomic_load(&s_ptt_call); }
 bool muse_voice_ptt_enabled(void)
 {
-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
+#if CONFIG_MUSE_REALTIME_BRIDGE
+    return true;
+#elif CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
     return !muse_settings_voice_notes();
 #else
     return false;
@@ -1024,7 +1026,11 @@ static void run_call(bool ptt, size_t waking_chunks)
     }
     muse_state_set_level(0);
     muse_state_set_progress(0);
+#if CONFIG_MUSE_REALTIME_BRIDGE
+    muse_state_set_caption("CONNECTING TO BRIDGE...");
+#else
     muse_state_set_caption("CONNECTING TO MUSE...");
+#endif
     if (ptt) {
         muse_voice_call_start_ptt();
         /* These were captured while this waking press was held. Enqueue
@@ -1099,7 +1105,12 @@ static void run_call(bool ptt, size_t waking_chunks)
         if (flushed) muse_vc_gate_flush(&c.gate, now);
         if (n) {
             muse_vc_gate_playout(&c.gate, out, n, now, CALL_SPEAKER_LAG_US);
+#if CONFIG_MUSE_REALTIME_BRIDGE
+            if (muse_audio_write(out, n) == ESP_OK) muse_realtime_bridge_played(n);
+            else muse_voice_call_end();
+#else
             muse_audio_write(out, n);
+#endif
         } else {
             muse_audio_write(silence, MUSE_AUDIO_CHUNK);
         }
@@ -1148,7 +1159,12 @@ static void run_call(bool ptt, size_t waking_chunks)
             muse_state_set_level(0);
             call_view(MUSE_VOICE_VIEW_SPEAKING);
             muse_state_set_level(muse_audio_level(out, n));
+#if CONFIG_MUSE_REALTIME_BRIDGE
+            if (muse_audio_write(out, n) == ESP_OK) muse_realtime_bridge_played(n);
+            else muse_voice_call_end();
+#else
             muse_audio_write(out, n);
+#endif
         }
     }
     muse_audio_write(silence, MUSE_AUDIO_CHUNK);
@@ -1250,7 +1266,11 @@ static void voice_task(void *arg)
             else {
                 muse_input_clear_call_pending(s_press_mark);
                 if (!muse_wifi_connected()) muse_wifi_apply();
+#if CONFIG_MUSE_REALTIME_BRIDGE
+                go_idle(muse_wifi_connected() ? "SET BRIDGE URL / TOKEN" : "NO WI-FI");
+#else
                 go_idle(not_ready_reason());
+#endif
             }
             pre_reset();
             continue;

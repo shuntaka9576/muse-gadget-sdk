@@ -451,6 +451,32 @@ menu "Muse"
 
 if MUSE_REALTIME_VOICE
 
+    config MUSE_REALTIME_BRIDGE
+        bool "Use an external Realtime bridge (StopWatch, experimental)"
+        depends on MUSE_BOARD_M5STACK_STOPWATCH && MUSE_HATCH
+        default n
+        select MBEDTLS_CERTIFICATE_BUNDLE
+        help
+            Replace the Muse voice backend with push-to-talk over authenticated
+            WSS to muse-realtime-bridge. Requires a reachable TLS endpoint;
+            this does not expose a VM process through the Muse Noise tunnel.
+
+    config MUSE_REALTIME_BRIDGE_URL
+        string "Bridge WSS URL"
+        depends on MUSE_REALTIME_BRIDGE
+        default ""
+        help
+            Example: wss://bridge.example.com/realtime. No query or credentials.
+
+    config MUSE_REALTIME_BRIDGE_TOKEN
+        string "Bridge bearer token"
+        depends on MUSE_REALTIME_BRIDGE
+        default ""
+        help
+            The bridge's BRIDGE_TOKEN, at least 32 printable characters.
+            Never use an OpenAI API key or a Muse VM token here.
+            Stored in the local sdkconfig and firmware image; do not publish them.
+
     config MUSE_REALTIME_VOICE_APP_ID
         string "App ID the voice session connects as"
         default "hatch-web"

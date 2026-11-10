@@ -124,6 +124,10 @@ typedef struct {
 } muse_voice_call_ptt_status_t;
 
 void muse_voice_call_ptt_status(muse_voice_call_ptt_status_t *out);
+#if CONFIG_MUSE_REALTIME_BRIDGE
+/* Successful speaker write, for conservative interruption/truncate timing. */
+void muse_realtime_bridge_played(size_t frames);
+#endif
 /* Live, and Muse still has a caller turn open; on a hands-free call also its
  * first reply is done and the server doesn't hear the caller talking. */
 bool muse_voice_call_working(void);

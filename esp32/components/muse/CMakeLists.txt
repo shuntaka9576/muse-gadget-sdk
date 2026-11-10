@@ -50,7 +50,12 @@ if(CONFIG_MUSE_ENABLED)
         list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp")
         list(APPEND embed "test_reply.mp3")   # muse_hatch_mp3_selftest
         if(CONFIG_MUSE_REALTIME_VOICE)
-            list(APPEND srcs "muse_voice_call.cpp" "muse_voice_call_core.c")
+            list(APPEND srcs "muse_voice_call_core.c")
+            if(CONFIG_MUSE_REALTIME_BRIDGE)
+                list(APPEND srcs "muse_realtime_bridge.c" "muse_realtime_bridge_core.c")
+            else()
+                list(APPEND srcs "muse_voice_call.cpp")
+            endif()
         endif()
     else()
         list(APPEND srcs "muse_chat_link.c")   # text replies over Link's session
@@ -193,7 +198,7 @@ endif()
 
 set(muse_priv_requires
     esp_timer esp_driver_usb_serial_jtag esp_psram nvs_flash esp_pm esp_event esp_netif
-    bt esp-tls mbedtls esp_app_format esp_http_client
+    bt esp-tls mbedtls esp_app_format esp_http_client esp_websocket_client
     noise_core minimp3 muse_vstream tinyh264 libvpx_vp8
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
     esp_driver_pcnt efuse
