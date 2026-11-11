@@ -38,6 +38,9 @@
 #include "muse_settings.h"
 #include "muse_state.h"
 #include "muse_wifi.h"
+#if CONFIG_MUSE_VM_PROBE
+#include "muse_vm_probe.h"
+#endif
 #if CONFIG_MUSE_REALTIME_VOICE
 #include "muse_voice_call.h"
 #include "muse_voice_call_core.h"
@@ -89,7 +92,7 @@ bool muse_voice_in_call(void) { return muse_voice_call_view() != MUSE_VOICE_VIEW
 bool muse_voice_ptt_call(void) { return muse_voice_in_call() && atomic_load(&s_ptt_call); }
 bool muse_voice_ptt_enabled(void)
 {
-#if CONFIG_MUSE_REALTIME_BRIDGE
+#if CONFIG_MUSE_VM_PROBE
     return true;
 #elif CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
     return !muse_settings_voice_notes();
@@ -414,6 +417,13 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
              20.0 * log10((st.peak + 1) / 32768.0), st.floor_db, st.clipped, muse_settings_mic_gain());
     return ok;
 }
+
+#if CONFIG_MUSE_VM_PROBE
+static bool probe_cancelled(void)
+{
+    return atomic_load(&s_shutdown) || s_press_input_epoch != muse_input_call_epoch();
+}
+#endif
 
 static void go_idle(const char *caption);
 
@@ -1026,11 +1036,8 @@ static void run_call(bool ptt, size_t waking_chunks)
     }
     muse_state_set_level(0);
     muse_state_set_progress(0);
-#if CONFIG_MUSE_REALTIME_BRIDGE
-    muse_state_set_caption("CONNECTING TO BRIDGE...");
-#else
     muse_state_set_caption("CONNECTING TO MUSE...");
-#endif
+
     if (ptt) {
         muse_voice_call_start_ptt();
         /* These were captured while this waking press was held. Enqueue
@@ -1105,12 +1112,8 @@ static void run_call(bool ptt, size_t waking_chunks)
         if (flushed) muse_vc_gate_flush(&c.gate, now);
         if (n) {
             muse_vc_gate_playout(&c.gate, out, n, now, CALL_SPEAKER_LAG_US);
-#if CONFIG_MUSE_REALTIME_BRIDGE
-            if (muse_audio_write(out, n) == ESP_OK) muse_realtime_bridge_played(n);
-            else muse_voice_call_end();
-#else
             muse_audio_write(out, n);
-#endif
+
         } else {
             muse_audio_write(silence, MUSE_AUDIO_CHUNK);
         }
@@ -1159,12 +1162,8 @@ static void run_call(bool ptt, size_t waking_chunks)
             muse_state_set_level(0);
             call_view(MUSE_VOICE_VIEW_SPEAKING);
             muse_state_set_level(muse_audio_level(out, n));
-#if CONFIG_MUSE_REALTIME_BRIDGE
-            if (muse_audio_write(out, n) == ESP_OK) muse_realtime_bridge_played(n);
-            else muse_voice_call_end();
-#else
             muse_audio_write(out, n);
-#endif
+
         }
     }
     muse_audio_write(silence, MUSE_AUDIO_CHUNK);
@@ -1266,11 +1265,8 @@ static void voice_task(void *arg)
             else {
                 muse_input_clear_call_pending(s_press_mark);
                 if (!muse_wifi_connected()) muse_wifi_apply();
-#if CONFIG_MUSE_REALTIME_BRIDGE
-                go_idle(muse_wifi_connected() ? "SET BRIDGE URL / TOKEN" : "NO WI-FI");
-#else
                 go_idle(not_ready_reason());
-#endif
+
             }
             pre_reset();
             continue;
@@ -1314,9 +1310,42 @@ static void voice_task(void *arg)
     }
 }
 
+#if CONFIG_MUSE_VM_PROBE
+/* Echo needs only the button queue and Link; never initialize I2S or audio buffers. */
+static void probe_task(void *arg)
+{
+    (void)arg;
+    go_idle("PRESS YELLOW FOR ECHO");
+    for (;;) {
+        muse_input_event_t ev;
+        if (xQueueReceive(s_queue, &ev, portMAX_DELAY) != pdTRUE) continue;
+        muse_input_clear_call_pending(ev.mark);
+        if (ev.type != MUSE_PTT_DOWN || ev.epoch != muse_input_call_epoch() ||
+            atomic_load(&s_shutdown) || ev.wake) continue;
+        s_press_input_epoch = ev.epoch;
+        muse_state_poke();
+        muse_wifi_power(MUSE_WIFI_FULL);
+        muse_state_set_mode(MUSE_MODE_THINKING);
+        char result[96];
+        muse_vm_probe_run(result, sizeof(result), probe_cancelled);
+        xQueueReset(s_queue);
+        if (!atomic_load(&s_shutdown)) go_idle(result);
+    }
+}
+#endif
+
 esp_err_t muse_voice_start(QueueHandle_t queue)
 {
     s_queue = queue;
+#if CONFIG_MUSE_VM_PROBE
+    if (xTaskCreatePinnedToCoreWithCaps(probe_task, "muse_probe", 6144, NULL, 6, NULL,
+                                      MUSE_AUDIO_CORE, MUSE_BIG_CAPS) != pdPASS) {
+        muse_state_set_mode(MUSE_MODE_ERROR);
+        muse_state_set_caption("ECHO TASK START FAILED");
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+#endif
     s_pre = heap_caps_malloc(PRE_CHUNKS * sizeof(pre_chunk_t), MUSE_BIG_CAPS);
     if (!s_pre || muse_audio_init(muse_settings_volume(), muse_settings_mic_gain()) != ESP_OK) {
         muse_state_set_mode(MUSE_MODE_ERROR);
